@@ -4,36 +4,251 @@
     <title>Akka HTTP</title>
     <meta charset="utf-8">
     <style>
+      @import url(https://fonts.googleapis.com/css?family=Droid+Serif);
       @import url(https://fonts.googleapis.com/css?family=Yanone+Kaffeesatz);
-      @import url(https://fonts.googleapis.com/css?family=Droid+Serif:400,700,400italic);
       @import url(https://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700,400italic);
 
-      body { font-family: 'Droid Serif'; }
+      body {
+        font-family: 'Droid Serif';
+      }
       h1, h2, h3 {
         font-family: 'Yanone Kaffeesatz';
-        font-weight: normal;
+        font-weight: 400;
+        margin-bottom: 0;
       }
-      .remark-code, .remark-inline-code { font-family: 'Ubuntu Mono'; }
+      .remark-slide-content h1 { font-size: 3em; }
+      .remark-slide-content h2 { font-size: 2em; }
+      .remark-slide-content h3 { font-size: 1.6em; }
+      .footnote {
+        position: absolute;
+        bottom: 3em;
+      }
+      li p { line-height: 1.25em; }
+      .red { color: #fa0000; }
+      .large { font-size: 2em; }
+      a, a > code {
+        color: rgb(249, 38, 114);
+        text-decoration: none;
+      }
+      code {
+        background: #e7e8e2;
+        border-radius: 5px;
+      }
+      .remark-code, .remark-inline-code { font-family: 'Ubuntu Mono'; font-size: 12px; }
+      .remark-code-line-highlighted     { background-color: #373832; }
+      .pull-left {
+        float: left;
+        width: 47%;
+      }
+      .pull-right {
+        float: right;
+        width: 47%;
+      }
+      .pull-right ~ p {
+        clear: both;
+      }
+      #slideshow .slide .content code {
+        font-size: 0.8em;
+      }
+      #slideshow .slide .content pre code {
+        font-size: 0.9em;
+        padding: 15px;
+      }
+      .inverse {
+        background: #272822;
+        color: #777872;
+        text-shadow: 0 0 20px #333;
+      }
+      .inverse h1, .inverse h2 {
+        color: #f3f3f3;
+        line-height: 0.8em;
+      }
+
+      /* Slide-specific styling */
+      #slide-inverse .footnote {
+        bottom: 12px;
+        left: 20px;
+      }
+      #slide-how .slides {
+        font-size: 0.9em;
+        position: absolute;
+        top:  151px;
+        right: 140px;
+      }
+      #slide-how .slides h3 {
+        margin-top: 0.2em;
+      }
+      #slide-how .slides .first, #slide-how .slides .second {
+        padding: 1px 20px;
+        height: 90px;
+        width: 120px;
+        -moz-box-shadow: 0 0 10px #777;
+        -webkit-box-shadow: 0 0 10px #777;
+        box-shadow: 0 0 10px #777;
+      }
+      #slide-how .slides .first {
+        background: #fff;
+        position: absolute;
+        top: 20%;
+        left: 20%;
+        z-index: 1;
+      }
+      #slide-how .slides .second {
+        position: relative;
+        background: #fff;
+        z-index: 0;
+      }
+
+      /* Two-column layout */
+      .left-column {
+        color: #777;
+        width: 20%;
+        height: 92%;
+        float: left;
+      }
+        .left-column h2:last-of-type, .left-column h3:last-child {
+          color: #000;
+        }
+      .right-column {
+        width: 75%;
+        float: right;
+        padding-top: 1em;
+      }
+
+      .center img {
+        height: 90%;
+        width: 90%;
+      }
+
+      .json {
+        font-size: 11px;
+      }
     </style>
   </head>
   <body>
     <textarea id="source">
-
-class: center, middle
-
-# Title
-
+name: inverse
+layout: true
+class: center, middle, inverse
+background-image: url(images/akka-logo-background.svg)
 ---
-
-# Agenda
-
-1. Introduction
-2. Deep-dive
-3. ...
-
+# Akka HTTP
 ---
+layout: false
+.left-column[
+  ## What is it?
+]
+.right-column[
+- The Akka HTTP modules implement a full server- and client-side HTTP stack on top of akka-actor and akka-stream
 
-# Introduction
+- Provides a DSL to describe *routes*
+
+- Each route is a set of *Directives* narrowing down the the single endpoint in a pattern matching style
+
+- Simple route
+
+```scala
+val route = path("hello") {
+  get {
+    complete(
+      HttpEntity(
+        ContentTypes.`text/html(UTF-8)`,
+        "<h1>Say hello to akka-http</h1>"
+      )
+    )
+  }
+}
+```
+
+- Run a server
+
+```scala
+val bindingFuture = Http().bindAndHandle(route, "localhost", 8080)
+```
+
+- Almost as good as Go
+
+]
+---
+layout: false
+.left-column[
+  ## What is it?
+]
+.right-column[
+- A bit more convoluted example
+
+```scala
+override val routes = pathPrefix("bootstraps") {
+  logRequestResult(LoggingMagnet(_ => trace(logger))) {
+    handleExceptions(mkExceptionHandler(logger)) {
+      headerValue(extractHostAndPort) { host =>
+        post {
+          onComplete(bootstrapper.ask(Bootstrapper.Start)) {
+            case Success(uuid: UUID)                     => complete(mkLinks("bootstrap", host, uuid))
+            case Success(Bootstrapper.AlreadyInProgress) => complete((Conflict, JsObject("message" -> JsString(s"Already in progress"))))
+            case Failure(ex)                             => throw ex
+            case r                                       => sys.error(s"Unrecognized response: $r")
+          }
+        }
+      } ~
+        get {
+          path(JavaUUID) { uuid =>
+            onComplete(bootstrapper.ask(Bootstrapper.About(uuid))) {
+              case Success(Bootstrapper.NotFound)       => complete((NotFound, JsObject("message" -> JsString(s"No available snapshot with uuid: $uuid"))))
+              case Success(report: Bootstrapper.Report) => complete(ReportJsonFormat.write(report))
+              case Failure(ex)                          => throw ex
+              case r                                    => sys.error(s"Unrecognized response: $r")
+            }
+          }
+        } ~
+        delete {
+          path(JavaUUID) { _ =>
+            bootstrapper ! Bootstrapper.Abort
+            complete(Accepted, JsObject("message" -> JsString(s"Aborted")))
+          }
+        }
+    }
+  }
+}
+```
+- Route composition
+
+- Tight integration with Akks Streams and Actors
+]
+---
+layout: false
+.left-column[
+  ## Why use it?
+]
+.right-column[
+- Less cognitive overload
+
+- Brings less dependencies than Play
+
+- Play always seemed an odd choice to write microservices
+
+- Akka Actors and Streams as first class citizens
+
+- Play is now backed by Akka HTTP anyway
+
+- Routes as code is nice
+
+- Testing a Directive is super easy
+
+```scala
+"healthcheck" should {
+  "respond with Ok" in {
+    Get("/healthcheck") ~> routes ~> check {
+      status.intValue() should be(200)
+    }
+  }
+}
+```
+]
+---
+template: inverse
+## Questions?
+.center[![Center-aligned image](images/q+a.jpg)]
 
     </textarea>
     <script src="public/remark-latest.min.js">

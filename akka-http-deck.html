@@ -221,15 +221,28 @@ layout: false
   ## Why use it?
 ]
 .right-column[
-- Less cognitive overload
-
-- Brings less dependencies than Play
+- Is not a framework
 
 - Play always seemed an odd choice to write microservices
 
 - Akka Actors and Streams as first class citizens
 
-- Play is now backed by Akka HTTP anyway
+- Back-pressure out of the box
+
+```scala
+  val route =
+    path("random") {
+      get {
+        complete(
+          HttpEntity(
+            ContentTypes.`text/plain(UTF-8)`,
+            // transform each number to a chunk of bytes
+            numbers.map(n => ByteString(s"$n\n"))
+          )
+        )
+      }
+    }
+```
 
 - Routes as code is nice
 
